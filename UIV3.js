@@ -2941,9 +2941,11 @@ window.__pbx = PBX_API; HIDDEN.pbx = PBX_API;
         }
       }
 
-      /* Click IR bubble (collapsed panel) → expand */
+      /* Click IR bubble (collapsed) → expand (skip if was drag) */
+      var __irDidDrag = false;
       panel.addEventListener('click', function (e) {
         if (!panel.classList.contains('collapsed')) return;
+        if (__irDidDrag) { __irDidDrag = false; return; }
         e.stopPropagation();
         setCollapsed(false);
       });
@@ -3345,30 +3347,48 @@ window.__pbx = PBX_API; HIDDEN.pbx = PBX_API;
       }
       setInterval(syncAll, 1500);
 
-      /* ===== DRAG ===== */
+      /* ===== DRAG (header when open + IR icon when collapsed) ===== */
       (function () {
-        var dragging = false, ox = 0, oy = 0;
+        var dragging = false, moved = false, ox = 0, oy = 0, sx = 0, sy = 0;
+        function getXY(e) {
+          if (e.touches && e.touches[0]) return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+          return { x: e.clientX, y: e.clientY };
+        }
         function dragStart(e) {
-          if (panel.classList.contains('collapsed')) return;
           if (e.target === miniBtn || (miniBtn.contains && miniBtn.contains(e.target))) return;
           if (e.target.tagName === 'SELECT' || e.target.tagName === 'OPTION' || e.target.tagName === 'INPUT') return;
-          dragging = true;
-          var clientX = e.clientX || (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
-          var clientY = e.clientY || (e.touches && e.touches[0] ? e.touches[0].clientY : 0);
+          // when expanded, only drag from header
+          if (!panel.classList.contains('collapsed') && !header.contains(e.target)) return;
+          dragging = true; moved = false;
+          var p = getXY(e);
+          sx = p.x; sy = p.y;
           var r = panel.getBoundingClientRect();
-          ox = clientX - r.left; oy = clientY - r.top;
+          ox = p.x - r.left; oy = p.y - r.top;
         }
         function dragMove(e) {
           if (!dragging) return;
-          var clientX = e.clientX || (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
-          var clientY = e.clientY || (e.touches && e.touches[0] ? e.touches[0].clientY : 0);
-          var x = clientX - ox, y = clientY - oy;
-          x = Math.max(4, Math.min(innerWidth - 60, x));
-          y = Math.max(4, Math.min(innerHeight - 40, y));
+          var p = getXY(e);
+          if (!moved && (Math.abs(p.x - sx) > 4 || Math.abs(p.y - sy) > 4)) moved = true;
+          if (!moved) return;
+          var x = p.x - ox, y = p.y - oy;
+          var maxW = panel.classList.contains('collapsed') ? 40 : 60;
+          var maxH = panel.classList.contains('collapsed') ? 40 : 40;
+          x = Math.max(4, Math.min(innerWidth - maxW, x));
+          y = Math.max(4, Math.min(innerHeight - maxH, y));
           panel.style.left = x + 'px'; panel.style.top = y + 'px';
           panel.style.right = 'auto'; panel.style.bottom = 'auto';
+          try {
+            localStorage.setItem('ir_pos_x', String(x));
+            localStorage.setItem('ir_pos_y', String(y));
+          } catch (err) {}
         }
-        function dragEnd() { dragging = false; }
+        function dragEnd() {
+          if (dragging && moved) __irDidDrag = true;
+          dragging = false;
+        }
+        // panel handles IR bubble drag; header handles open-state drag
+        panel.addEventListener('mousedown', dragStart);
+        panel.addEventListener('touchstart', dragStart, { passive: true });
         header.addEventListener('mousedown', dragStart);
         header.addEventListener('touchstart', dragStart, { passive: true });
         addEventListener('mousemove', dragMove);
@@ -3396,6 +3416,15 @@ window.__pbx = PBX_API; HIDDEN.pbx = PBX_API;
         });
 
         setCollapsed(true);
+        try {
+          var px = parseFloat(localStorage.getItem('ir_pos_x'));
+          var py = parseFloat(localStorage.getItem('ir_pos_y'));
+          if (isFinite(px) && isFinite(py)) {
+            panel.style.left = Math.max(4, Math.min(innerWidth - 40, px)) + 'px';
+            panel.style.top = Math.max(4, Math.min(innerHeight - 40, py)) + 'px';
+            panel.style.right = 'auto'; panel.style.bottom = 'auto';
+          }
+        } catch (e) {}
         refreshFoot();
       }
       mount();
